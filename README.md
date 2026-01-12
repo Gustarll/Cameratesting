@@ -2,57 +2,32 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel de Controle - Gusta</title>
+    <title>CENTRAL DE MONITORAMENTO HD</title>
     <style>
-        body { font-family: sans-serif; background: #000; color: white; margin: 0; padding: 20px; }
-        h2 { color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
+        body { background: #0a0a0a; color: #e0e0e0; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+        .grid { display: grid; grid-template-columns: 1fr; gap: 30px; }
         
-        #grid-monitores { 
-            display: grid; 
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); 
-            gap: 20px; 
-            margin-top: 20px;
-        }
+        .device-card { background: #161616; border-radius: 12px; padding: 20px; border: 1px solid #333; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .device-info { margin-bottom: 15px; display: flex; align-items: center; gap: 15px; }
+        .status-dot { width: 12px; height: 12px; border-radius: 50%; background: #ff4444; }
+        .online .status-dot { background: #00ff00; box-shadow: 0 0 10px #00ff00; }
 
-        .monitor-card { 
-            background: #111; 
-            border: 2px solid #333; 
-            border-radius: 10px; 
-            padding: 10px; 
-            transition: 0.3s;
-        }
-
-        .monitor-card img { 
-            width: 100%; 
-            border-radius: 5px; 
-            background: #000;
-            display: block;
-        }
-
-        .info {
-            margin-top: 10px;
-            font-size: 12px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .status-online { color: #00ff00; font-weight: bold; }
-        .status-offline { color: #ff4444; font-weight: bold; }
-
-        .badge {
-            background: #007bff;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 10px;
-        }
+        .feeds { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .feed-container { position: relative; background: #000; border-radius: 8px; overflow: hidden; border: 1px solid #444; }
+        .feed-container img { width: 100%; display: block; min-height: 200px; }
+        .label { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <h2>Câmeras Ativas em Tempo Real</h2>
-    <div id="grid-monitores">Aguardando conexão dos dispositivos...</div>
+    <div class="header">
+        <h1>MONITORAMENTO EM TEMPO REAL</h1>
+        <div id="count">Dispositivos: 0</div>
+    </div>
+
+    <div id="dispositivos" class="grid">
+        </div>
 
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
@@ -63,50 +38,41 @@
             projectId: "cameralog-24090",
             appId: "1:1054247726586:web:2e3c0584e54ada96a0c843"
         };
-
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
-        function iniciarMonitoramento() {
-            const grid = document.getElementById('grid-monitores');
+        db.collection("ips_ativos").onSnapshot((snapshot) => {
+            const container = document.getElementById('dispositivos');
+            document.getElementById('count').innerText = `Dispositivos: ${snapshot.size}`;
+            container.innerHTML = "";
 
-            // Escuta a coleção "ips_ativos" em tempo real
-            db.collection("ips_ativos").onSnapshot((snapshot) => {
-                if (snapshot.empty) {
-                    grid.innerHTML = "Nenhum dispositivo conectado no momento.";
-                    return;
-                }
-
-                grid.innerHTML = "";
-                const agora = Date.now();
-
-                snapshot.forEach((doc) => {
-                    const dados = doc.data();
-                    const segundosDesdeUltimoPing = (agora - dados.last_ping) / 1000;
-                    const isOnline = segundosDesdeUltimoPing < 12; // 12 segundos de tolerância
-
-                    const card = document.createElement('div');
-                    card.className = "monitor-card";
-                    card.style.borderColor = isOnline ? "#007bff" : "#444";
-
-                    card.innerHTML = `
-                        <img src="${dados.imagem}">
-                        <div class="info">
-                            <div>
-                                <span class="badge">IP: ${dados.ip_original}</span>
-                                <div style="margin-top:5px; font-size:10px; color:#aaa;">Visto: ${new Date(dados.last_ping).toLocaleTimeString()}</div>
-                            </div>
-                            <span class="${isOnline ? 'status-online' : 'status-offline'}">
-                                ${isOnline ? '● AO VIVO' : '● DESCONECTADO'}
-                            </span>
+            snapshot.forEach((doc) => {
+                const d = doc.data();
+                const isOnline = (Date.now() - d.last_ping) < 15000;
+                
+                const card = document.createElement('div');
+                card.className = `device-card ${isOnline ? 'online' : ''}`;
+                
+                card.innerHTML = `
+                    <div class="device-info">
+                        <div class="status-dot"></div>
+                        <strong>ID: ${d.nome}</strong>
+                        <span style="font-size: 12px; color: #888;">Visto em: ${new Date(d.last_ping).toLocaleTimeString()}</span>
+                    </div>
+                    <div class="feeds">
+                        <div class="feed-container">
+                            <div class="label">CÂMERA</div>
+                            <img src="${d.camera || ''}" onerror="this.src='https://via.placeholder.com/640x480?text=Sem+Sinal+Camera'">
                         </div>
-                    `;
-                    grid.appendChild(card);
-                });
+                        <div class="feed-container">
+                            <div class="label">TELA</div>
+                            <img src="${d.tela || ''}" onerror="this.src='https://via.placeholder.com/640x480?text=Sem+Sinal+Tela'">
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
             });
-        }
-
-        window.onload = iniciarMonitoramento;
+        });
     </script>
 </body>
 </html>
