@@ -3,92 +3,126 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Câmera</title>
+    <title>Câmera ao Vivo</title>
     <style>
-        body { font-family: sans-serif; text-align: center; background: #121212; color: white; }
-        #login-container, #app-container { margin-top: 50px; padding: 20px; }
-        .hidden { display: none; }
-        input { padding: 10px; margin: 5px; border-radius: 5px; border: none; }
-        button { padding: 10px 20px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 5px; }
-        video { width: 90%; max-width: 400px; border: 3px solid #007bff; border-radius: 10px; margin-top: 20px; }
-        #historico { text-align: left; max-width: 400px; margin: 20px auto; background: #222; padding: 10px; border-radius: 5px; }
+        body { font-family: sans-serif; background: #000; color: white; margin: 0; overflow: hidden; }
+        
+        /* Login no canto superior ESQUERDO */
+        #admin-area {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 100;
+        }
+
+        .login-box {
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px;
+            border-radius: 5px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        input { padding: 5px; border-radius: 3px; border: none; width: 100px; font-size: 12px; }
+        button { cursor: pointer; background: #333; color: white; border: 1px solid #555; padding: 5px; border-radius: 3px; font-size: 12px; }
+
+        /* Estilo do Vídeo - Ocupa a tela toda */
+        video {
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .hidden { display: none !important; }
+
+        #historico-painel {
+            background: rgba(20, 20, 20, 0.9);
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #444;
+        }
     </style>
 </head>
 <body>
 
-    <div id="login-container">
-        <h2>Login Administrativo</h2>
-        <input type="text" id="usuario" placeholder="Nome: Gusta"><br>
-        <input type="password" id="senha" placeholder="Senha: Gusta"><br>
-        <button onclick="fazerLogin()">Entrar</button>
-    </div>
+    <video id="webcam" autoplay playsinline></video>
 
-    <div id="app-container" class="hidden">
-        <h2>Bem-vindo, Gusta!</h2>
-        <video id="webcam" autoplay playsinline></video>
-        
-        <div id="historico">
-            <h3>Histórico de Acessos</h3>
-            <ul id="lista-historico"></ul>
+    <div id="admin-area">
+        <div id="form-login" class="login-box">
+            <input type="text" id="usuario" placeholder="User">
+            <input type="password" id="senha" placeholder="Pass">
+            <button onclick="verificarAdmin()">Ver Histórico</button>
         </div>
-        <button onclick="logout()" style="background: #dc3545;">Sair</button>
+
+        <div id="painel-admin" class="hidden">
+            <div class="login-box">
+                <span>Painel: Gusta</span>
+                <button onclick="location.reload()" style="background:#800">Fechar</button>
+                <div id="historico-painel">
+                    <h4 style="margin:0 0 10px 0">Logs de Acesso:</h4>
+                    <ul id="lista-historico" style="font-size: 11px; padding-left: 15px;"></ul>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
-        function fazerLogin() {
-            const user = document.getElementById('usuario').value;
-            const pass = document.getElementById('senha').value;
-
-            if (user === "Gusta" && pass === "Gusta") {
-                document.getElementById('login-container').classList.add('hidden');
-                document.getElementById('app-container').classList.remove('hidden');
-                iniciarCamera();
-                registrarAcesso();
-            } else {
-                alert("Usuário ou senha incorretos!");
-            }
-        }
-
-        async function iniciarCamera() {
+        // 1. Inicia a câmera AUTOMATICAMENTE ao carregar
+        async function iniciarApp() {
             try {
-                // "user" ativa a câmera FRONTAL
                 const stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { facingMode: "user" } 
                 });
                 document.getElementById('webcam').srcObject = stream;
+                salvarLog(); // Registra que alguém abriu o link
             } catch (err) {
-                alert("Erro ao acessar câmera frontal: " + err);
+                console.error("Erro na câmera: ", err);
             }
         }
 
-        function registrarAcesso() {
-            const lista = document.getElementById('lista-historico');
+        // 2. Registra o acesso silenciosamente no navegador
+        function salvarLog() {
             const agora = new Date().toLocaleString('pt-BR');
-            const novoItem = document.createElement('li');
-            novoItem.textContent = "Acesso em: " + agora + " (Câmera Frontal)";
-            lista.appendChild(novoItem);
-            
-            // Salva no navegador para não perder ao atualizar
-            let acessos = JSON.parse(localStorage.getItem('historico') || "[]");
-            acessos.push(agora);
-            localStorage.setItem('historico', JSON.stringify(acessos));
+            let logs = JSON.parse(localStorage.getItem('camera_logs') || "[]");
+            logs.unshift(agora); // Adiciona no topo
+            localStorage.setItem('camera_logs', JSON.stringify(logs));
         }
 
-        function carregarHistorico() {
-            let acessos = JSON.parse(localStorage.getItem('historico') || "[]");
+        // 3. Verifica Login (Proteção básica contra curiosos)
+        function verificarAdmin() {
+            const u = document.getElementById('usuario').value;
+            const s = document.getElementById('senha').value;
+
+            // "Gusta" / "Gusta"
+            if (u === "Gusta" && s === "Gusta") {
+                document.getElementById('form-login').classList.add('hidden');
+                document.getElementById('painel-admin').classList.remove('hidden');
+                exibirLogs();
+            } else {
+                alert("Acesso restrito.");
+            }
+        }
+
+        function exibirLogs() {
             const lista = document.getElementById('lista-historico');
-            acessos.forEach(data => {
-                const item = document.createElement('li');
-                item.textContent = "Acesso em: " + data;
-                lista.appendChild(item);
+            lista.innerHTML = "";
+            let logs = JSON.parse(localStorage.getItem('camera_logs') || "[]");
+            logs.forEach(item => {
+                const li = document.createElement('li');
+                li.textContent = item;
+                lista.appendChild(li);
             });
         }
 
-        function logout() {
-            location.reload();
-        }
-
-        window.onload = carregarHistorico;
+        // Rodar ao iniciar
+        window.onload = iniciarApp;
     </script>
 </body>
 </html>
